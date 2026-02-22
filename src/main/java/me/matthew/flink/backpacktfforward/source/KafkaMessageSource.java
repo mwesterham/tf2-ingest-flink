@@ -175,7 +175,7 @@ public class KafkaMessageSource {
         // Session and heartbeat settings for consumer group coordination
         setPropertyIfNotExists(properties, "session.timeout.ms", "45000"); // 45 second session timeout (allow more time before rebalancing)
         setPropertyIfNotExists(properties, "heartbeat.interval.ms", "3000"); // 3 second heartbeat interval (keep session alive)
-        setPropertyIfNotExists(properties, "max.poll.interval.ms", "300000"); // 5 minute max poll interval
+        setPropertyIfNotExists(properties, "max.poll.interval.ms", "600000"); // 10 minute max poll interval
         
         // Offset commit settings for graceful shutdown
         setPropertyIfNotExists(properties, "enable.auto.commit", "true"); // Enable auto commit
@@ -202,12 +202,12 @@ public class KafkaMessageSource {
         
         // Consumer group coordination settings
         setPropertyIfNotExists(properties, "partition.assignment.strategy", 
-            "org.apache.kafka.clients.consumer.RangeAssignor,org.apache.kafka.clients.consumer.CooperativeStickyAssignor");
+    "org.apache.kafka.clients.consumer.CooperativeStickyAssignor,org.apache.kafka.clients.consumer.RangeAssignor");
         
         // Rebalancing behavior settings
-        setPropertyIfNotExists(properties, "max.poll.records", "500"); // Limit records per poll to avoid rebalancing
-        setPropertyIfNotExists(properties, "session.timeout.ms", "30000"); // 30 second session timeout
-        setPropertyIfNotExists(properties, "heartbeat.interval.ms", "10000"); // 10 second heartbeat interval
+        setPropertyIfNotExists(properties, "max.poll.records", "50"); // Limit records per poll to avoid rebalancing
+        setPropertyIfNotExists(properties, "session.timeout.ms", "60000"); // 60 second session timeout
+        setPropertyIfNotExists(properties, "heartbeat.interval.ms", "3000"); // 3 second heartbeat interval
         
         // Offset management settings for better coordination
         setPropertyIfNotExists(properties, "auto.offset.reset", "latest"); // Start from latest if no committed offset
