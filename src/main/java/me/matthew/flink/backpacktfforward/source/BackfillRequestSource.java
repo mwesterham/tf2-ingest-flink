@@ -140,12 +140,12 @@ public class BackfillRequestSource {
         setPropertyIfNotExists(properties, "reconnect.backoff.ms", "1000");
         setPropertyIfNotExists(properties, "reconnect.backoff.max.ms", "32000");
         setPropertyIfNotExists(properties, "retry.backoff.ms", "1000");
-        setPropertyIfNotExists(properties, "request.timeout.ms", "30000");
+        setPropertyIfNotExists(properties, "request.timeout.ms", "60000"); // Match Bridge timeout
         setPropertyIfNotExists(properties, "connections.max.idle.ms", "300000");
         
         // Session and heartbeat settings
-        setPropertyIfNotExists(properties, "session.timeout.ms", "30000");
-        setPropertyIfNotExists(properties, "heartbeat.interval.ms", "10000");
+        setPropertyIfNotExists(properties, "session.timeout.ms", "45000"); // Allow more time before rebalancing
+        setPropertyIfNotExists(properties, "heartbeat.interval.ms", "3000"); // Keep the session alive
         setPropertyIfNotExists(properties, "max.poll.interval.ms", "300000");
         
         // Offset commit settings
@@ -154,7 +154,7 @@ public class BackfillRequestSource {
         
         // Fetch settings
         setPropertyIfNotExists(properties, "fetch.min.bytes", "1");
-        setPropertyIfNotExists(properties, "fetch.max.wait.ms", "500");
+        setPropertyIfNotExists(properties, "fetch.max.wait.ms", "500"); // Don't hammer the broker for tiny data
         
         // Error handling settings
         setPropertyIfNotExists(properties, "retries", "3");

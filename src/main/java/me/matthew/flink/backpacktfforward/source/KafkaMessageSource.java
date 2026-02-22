@@ -169,12 +169,12 @@ public class KafkaMessageSource {
         setPropertyIfNotExists(properties, "reconnect.backoff.ms", "1000"); // 1 second initial backoff
         setPropertyIfNotExists(properties, "reconnect.backoff.max.ms", "32000"); // 32 second max backoff
         setPropertyIfNotExists(properties, "retry.backoff.ms", "1000"); // 1 second retry backoff
-        setPropertyIfNotExists(properties, "request.timeout.ms", "30000"); // 30 second request timeout
+        setPropertyIfNotExists(properties, "request.timeout.ms", "60000"); // 60 second request timeout (match Bridge)
         setPropertyIfNotExists(properties, "connections.max.idle.ms", "300000"); // 5 minute idle timeout
         
         // Session and heartbeat settings for consumer group coordination
-        setPropertyIfNotExists(properties, "session.timeout.ms", "30000"); // 30 second session timeout
-        setPropertyIfNotExists(properties, "heartbeat.interval.ms", "10000"); // 10 second heartbeat interval
+        setPropertyIfNotExists(properties, "session.timeout.ms", "45000"); // 45 second session timeout (allow more time before rebalancing)
+        setPropertyIfNotExists(properties, "heartbeat.interval.ms", "3000"); // 3 second heartbeat interval (keep session alive)
         setPropertyIfNotExists(properties, "max.poll.interval.ms", "300000"); // 5 minute max poll interval
         
         // Offset commit settings for graceful shutdown
@@ -183,7 +183,7 @@ public class KafkaMessageSource {
         
         // Fetch settings for performance and reliability
         setPropertyIfNotExists(properties, "fetch.min.bytes", "1"); // Minimum fetch size
-        setPropertyIfNotExists(properties, "fetch.max.wait.ms", "500"); // Maximum wait time for fetch
+        setPropertyIfNotExists(properties, "fetch.max.wait.ms", "500"); // Don't hammer the broker for tiny data
         
         // Error handling settings
         setPropertyIfNotExists(properties, "retries", "3"); // Number of retries for transient errors
