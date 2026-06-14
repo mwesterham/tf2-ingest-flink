@@ -19,13 +19,10 @@ import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.connector.kafka.source.KafkaSource;
-import org.apache.flink.streaming.api.datastream.AsyncDataStream;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.kafka.common.KafkaException;
-
-import java.util.concurrent.TimeUnit;
 
 import static me.matthew.flink.backpacktfforward.metrics.Metrics.INCOMING_EVENTS;
 
@@ -111,16 +108,10 @@ public class WebSocketForwarderJob {
                 var backfillRequestsWithMetrics = BackfillSourceWithMetrics.addMetrics(backfillRequests)
                         .name("BackpackTFBackfillSourceWithMetrics");
                 
-                // Process backfill requests through BackfillProcessor with error handling.
-                // AsyncDataStream.unorderedWait keeps the task thread free during API calls so
-                // checkpoint barriers are not blocked by long-running Steam/BackpackTF I/O.
-                // capacity=1: Steam API rate limit is global, so only 1 request in-flight at a time.
+                // Process backfill requests through BackfillProcessor with error handling
                 try {
-                    backfillStream = AsyncDataStream.unorderedWait(
-                                    backfillRequestsWithMetrics,
-                                    new BackfillProcessor(dbUrl, dbUser, dbPass),
-                                    30, TimeUnit.MINUTES,
-                                    1)
+                    backfillStream = backfillRequestsWithMetrics
+                            .flatMap(new BackfillProcessor(dbUrl, dbUser, dbPass))
                             .returns(ListingUpdate.class)
                             .name("BackpackTFBackfillProcessor");
                 } catch (Exception e) {
