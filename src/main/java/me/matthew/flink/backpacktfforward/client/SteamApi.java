@@ -93,15 +93,15 @@ public class SteamApi {
                 .handleIf(this::isRetryableHttpError)
                 .withDelay(Duration.ofSeconds(2))
                 .withMaxRetries(-1)
-                .withBackoff(Duration.ofSeconds(2), Duration.ofMinutes(5)) // Longer max backoff for severe issues
+                .withBackoff(Duration.ofSeconds(2), Duration.ofMinutes(5))
                 .onRetry(e -> {
                     if (e.getAttemptCount() > 10) {
-                        log.warn("Steam API retry attempt {} (EXCESSIVE): {}. This may indicate persistent API issues.", 
-                                e.getAttemptCount(), 
+                        log.warn("Steam API retry attempt {} (EXCESSIVE): {}. This may indicate persistent API issues.",
+                                e.getAttemptCount(),
                                 e.getLastException().getMessage());
                     } else {
-                        log.debug("Steam API retry (attempt {}): {}", 
-                                e.getAttemptCount(), 
+                        log.debug("Steam API retry (attempt {}): {}",
+                                e.getAttemptCount(),
                                 e.getLastException().getMessage());
                     }
                 })
