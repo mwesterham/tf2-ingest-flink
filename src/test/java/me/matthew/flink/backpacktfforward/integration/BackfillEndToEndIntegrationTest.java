@@ -12,6 +12,12 @@ import me.matthew.flink.backpacktfforward.util.DatabaseHelper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
+import org.apache.flink.api.common.functions.AbstractRichFunction;
+import org.apache.flink.api.common.functions.RuntimeContext;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.metrics.groups.OperatorMetricGroup;
+import org.apache.flink.streaming.api.functions.async.ResultFuture;
 import org.apache.flink.util.Collector;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -20,6 +26,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import lombok.extern.slf4j.Slf4j;
@@ -52,12 +61,9 @@ class BackfillEndToEndIntegrationTest {
         processor = new BackfillProcessor("jdbc:h2:mem:test", "test", "test");
         
         // Mock the Flink runtime context to avoid NPE with metrics
-        org.apache.flink.api.common.functions.RuntimeContext mockRuntimeContext = 
-            mock(org.apache.flink.api.common.functions.RuntimeContext.class);
-        org.apache.flink.metrics.groups.OperatorMetricGroup mockMetricGroup = 
-            mock(org.apache.flink.metrics.groups.OperatorMetricGroup.class);
-        org.apache.flink.metrics.Counter mockCounter = 
-            mock(org.apache.flink.metrics.Counter.class);
+        RuntimeContext mockRuntimeContext = mock(RuntimeContext.class);
+        OperatorMetricGroup mockMetricGroup = mock(OperatorMetricGroup.class);
+        Counter mockCounter = mock(Counter.class);
         
         when(mockRuntimeContext.getMetricGroup()).thenReturn(mockMetricGroup);
         when(mockMetricGroup.counter(anyString())).thenReturn(mockCounter);
@@ -65,7 +71,7 @@ class BackfillEndToEndIntegrationTest {
         
         // Inject the mock runtime context using reflection
         try {
-            var runtimeContextField = org.apache.flink.api.common.functions.AbstractRichFunction.class
+            var runtimeContextField = AbstractRichFunction.class
                 .getDeclaredField("runtimeContext");
             runtimeContextField.setAccessible(true);
             runtimeContextField.set(processor, mockRuntimeContext);
@@ -75,7 +81,7 @@ class BackfillEndToEndIntegrationTest {
         
         // Initialize the processor (this should now work with mocked runtime context)
         try {
-            processor.open(new org.apache.flink.configuration.Configuration());
+            processor.open(new Configuration());
         } catch (Exception e) {
             // If it still fails, we'll inject mocks manually
             log.debug("Processor initialization failed, will inject mocks: {}", e.getMessage());
@@ -102,10 +108,10 @@ class BackfillEndToEndIntegrationTest {
             // Inject executor (open() may fail before reaching executor initialization)
             var executorField = BackfillProcessor.class.getDeclaredField("executor");
             executorField.setAccessible(true);
-            executorField.set(processor, java.util.concurrent.Executors.newSingleThreadExecutor());
+            executorField.set(processor, Executors.newSingleThreadExecutor());
 
             // Inject counters in case open() failed before initializing them
-            org.apache.flink.metrics.Counter fallbackCounter = mock(org.apache.flink.metrics.Counter.class);
+            Counter fallbackCounter = mock(Counter.class);
             var processedField = BackfillProcessor.class.getDeclaredField("backfillRequestsProcessed");
             processedField.setAccessible(true);
             if (processedField.get(processor) == null) {
@@ -379,6 +385,7 @@ class BackfillEndToEndIntegrationTest {
     }
     
     private List<ListingUpdate> invokeSync(BackfillProcessor proc, BackfillRequest request) throws Exception {
+<<<<<<< HEAD
         java.util.concurrent.CompletableFuture<java.util.Collection<ListingUpdate>> future =
                 new java.util.concurrent.CompletableFuture<>();
         proc.asyncInvoke(request, new org.apache.flink.streaming.api.functions.async.ResultFuture<ListingUpdate>() {
@@ -386,6 +393,14 @@ class BackfillEndToEndIntegrationTest {
             @Override public void completeExceptionally(Throwable error) { future.completeExceptionally(error); }
         });
         return new ArrayList<>(future.get(30, java.util.concurrent.TimeUnit.SECONDS));
+=======
+        CompletableFuture<Collection<ListingUpdate>> future = new CompletableFuture<>();
+        proc.asyncInvoke(request, new ResultFuture<ListingUpdate>() {
+            @Override public void complete(Collection<ListingUpdate> result) { future.complete(result); }
+            @Override public void completeExceptionally(Throwable error) { future.completeExceptionally(error); }
+        });
+        return new ArrayList<>(future.get(30, TimeUnit.SECONDS));
+>>>>>>> e13b66c (move backfill to an executor approach)
     }
 
     // Helper methods to create sample data
