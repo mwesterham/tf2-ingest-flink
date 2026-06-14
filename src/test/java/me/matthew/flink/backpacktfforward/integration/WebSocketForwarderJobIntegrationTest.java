@@ -59,7 +59,7 @@ class WebSocketForwarderJobIntegrationTest {
         assertNotNull(processor);
         
         // Verify processor implements the expected Flink interface
-        assertTrue(processor instanceof org.apache.flink.api.common.functions.RichFlatMapFunction);
+        assertTrue(processor instanceof org.apache.flink.streaming.api.functions.async.RichAsyncFunction);
         
         // Test that processor can process BackfillRequest objects
         BackfillRequest testRequest = new BackfillRequest();
@@ -79,7 +79,12 @@ class WebSocketForwarderJobIntegrationTest {
         // Test that processor can handle requests without throwing exceptions
         assertDoesNotThrow(() -> {
             try {
-                processor.flatMap(testRequest, collector);
+                var future = new java.util.concurrent.CompletableFuture<java.util.Collection<me.matthew.flink.backpacktfforward.model.ListingUpdate>>();
+                processor.asyncInvoke(testRequest, new org.apache.flink.streaming.api.functions.async.ResultFuture<me.matthew.flink.backpacktfforward.model.ListingUpdate>() {
+                    @Override public void complete(java.util.Collection<me.matthew.flink.backpacktfforward.model.ListingUpdate> result) { future.complete(result); }
+                    @Override public void completeExceptionally(Throwable error) { future.completeExceptionally(error); }
+                });
+                future.get(5, java.util.concurrent.TimeUnit.SECONDS);
             } catch (Exception e) {
                 // Expected to fail due to missing API configurations in test environment
                 log.debug("Expected processing failure in test environment: {}", e.getMessage());
