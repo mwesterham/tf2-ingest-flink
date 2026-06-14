@@ -1,5 +1,6 @@
 package me.matthew.flink.backpacktfforward.integration;
 
+import me.matthew.flink.backpacktfforward.BackfillJob;
 import me.matthew.flink.backpacktfforward.WebSocketForwarderJob;
 import me.matthew.flink.backpacktfforward.model.ListingUpdate;
 import me.matthew.flink.backpacktfforward.model.backfill.BackfillRequest;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 /**
  * Integration test to validate minimal code changes outside BackfillProcessor.
@@ -81,7 +83,7 @@ class BackfillCompatibilityIntegrationTest {
         try {
             Method createSourceMethod = KafkaMessageSource.class.getDeclaredMethod("createSource");
             assertNotNull(createSourceMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(createSourceMethod.getModifiers()));
+            assertTrue(Modifier.isStatic(createSourceMethod.getModifiers()));
         } catch (NoSuchMethodException e) {
             fail("KafkaMessageSource.createSource() method should exist");
         }
@@ -104,15 +106,15 @@ class BackfillCompatibilityIntegrationTest {
         try {
             Method getTopicMethod = BackfillRequestSource.class.getDeclaredMethod("getBackfillKafkaTopic");
             assertNotNull(getTopicMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(getTopicMethod.getModifiers()));
+            assertTrue(Modifier.isStatic(getTopicMethod.getModifiers()));
             
             Method getConsumerGroupMethod = BackfillRequestSource.class.getDeclaredMethod("getBackfillKafkaConsumerGroup");
             assertNotNull(getConsumerGroupMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(getConsumerGroupMethod.getModifiers()));
+            assertTrue(Modifier.isStatic(getConsumerGroupMethod.getModifiers()));
             
             Method createKafkaSourceMethod = BackfillRequestSource.class.getDeclaredMethod("createKafkaSource");
             assertNotNull(createKafkaSourceMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(createKafkaSourceMethod.getModifiers()));
+            assertTrue(Modifier.isStatic(createKafkaSourceMethod.getModifiers()));
         } catch (NoSuchMethodException e) {
             fail("BackfillRequestSource methods should exist: " + e.getMessage());
         }
@@ -175,14 +177,14 @@ class BackfillCompatibilityIntegrationTest {
         try {
             Method mainMethod = WebSocketForwarderJob.class.getDeclaredMethod("main", String[].class);
             assertNotNull(mainMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(mainMethod.getModifiers()));
-            assertTrue(java.lang.reflect.Modifier.isPublic(mainMethod.getModifiers()));
+            assertTrue(Modifier.isStatic(mainMethod.getModifiers()));
+            assertTrue(Modifier.isPublic(mainMethod.getModifiers()));
         } catch (NoSuchMethodException e) {
             fail("WebSocketForwarderJob.main() method should exist");
         }
         
         // Verify the job class is accessible and public
-        assertTrue(java.lang.reflect.Modifier.isPublic(WebSocketForwarderJob.class.getModifiers()));
+        assertTrue(Modifier.isPublic(WebSocketForwarderJob.class.getModifiers()));
         
         // Test that the job can handle both regular Kafka events and backfill events
         // This is verified by checking that the job has the expected structure for event routing
@@ -270,15 +272,14 @@ class BackfillCompatibilityIntegrationTest {
         // This is implicit in the job structure - if it compiles and the integration
         // test passes, the configuration patterns are maintained
         
-        // Verify that backfill configuration validation exists
+        // Backfill is now handled by a separate BackfillJob — verify its entry point exists
         try {
-            // The validateBackfillConfiguration method should exist in WebSocketForwarderJob
-            Method validateMethod = WebSocketForwarderJob.class.getDeclaredMethod("validateBackfillConfiguration");
-            assertNotNull(validateMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(validateMethod.getModifiers()));
-            assertTrue(java.lang.reflect.Modifier.isPrivate(validateMethod.getModifiers()));
+            Method backfillMain = BackfillJob.class.getDeclaredMethod("main", String[].class);
+            assertNotNull(backfillMain);
+            assertTrue(Modifier.isPublic(backfillMain.getModifiers()));
+            assertTrue(Modifier.isStatic(backfillMain.getModifiers()));
         } catch (NoSuchMethodException e) {
-            fail("Backfill configuration validation should exist: " + e.getMessage());
+            fail("BackfillJob.main() should exist as the entry point for the separate backfill job: " + e.getMessage());
         }
         
         // Test that the job handles missing backfill configuration gracefully

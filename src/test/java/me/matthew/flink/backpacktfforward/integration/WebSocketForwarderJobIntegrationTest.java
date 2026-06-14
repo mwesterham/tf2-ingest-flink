@@ -1,5 +1,6 @@
 package me.matthew.flink.backpacktfforward.integration;
 
+import me.matthew.flink.backpacktfforward.BackfillJob;
 import me.matthew.flink.backpacktfforward.WebSocketForwarderJob;
 import me.matthew.flink.backpacktfforward.model.ListingUpdate;
 import me.matthew.flink.backpacktfforward.model.backfill.BackfillRequest;
@@ -21,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -97,7 +99,7 @@ class WebSocketForwarderJobIntegrationTest {
         try {
             Method createKafkaSourceMethod = BackfillRequestSource.class.getDeclaredMethod("createKafkaSource");
             assertNotNull(createKafkaSourceMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(createKafkaSourceMethod.getModifiers()));
+            assertTrue(Modifier.isStatic(createKafkaSourceMethod.getModifiers()));
         } catch (NoSuchMethodException e) {
             fail("BackfillRequestSource should have createKafkaSource method");
         }
@@ -239,33 +241,28 @@ class WebSocketForwarderJobIntegrationTest {
     void testExistingJobStructureAndIntegrationPointsMaintained() throws Exception {
         // Test that existing WebSocketForwarderJob structure and integration points are maintained
         
-        // Verify main method exists and is accessible
+        // Verify WebSocketForwarderJob main method exists and is accessible
         Method mainMethod = WebSocketForwarderJob.class.getDeclaredMethod("main", String[].class);
         assertNotNull(mainMethod);
-        assertTrue(java.lang.reflect.Modifier.isStatic(mainMethod.getModifiers()));
-        assertTrue(java.lang.reflect.Modifier.isPublic(mainMethod.getModifiers()));
-        
-        // Verify backfill configuration validation method exists
-        Method validateMethod = WebSocketForwarderJob.class.getDeclaredMethod("validateBackfillConfiguration");
-        assertNotNull(validateMethod);
-        assertTrue(java.lang.reflect.Modifier.isStatic(validateMethod.getModifiers()));
-        assertTrue(java.lang.reflect.Modifier.isPrivate(validateMethod.getModifiers()));
-        
-        // Test that the job class structure supports both Kafka and backfill streams
-        // This is verified by checking that all required components exist and are accessible
-        
+        assertTrue(Modifier.isStatic(mainMethod.getModifiers()));
+        assertTrue(Modifier.isPublic(mainMethod.getModifiers()));
+
+        // Verify BackfillJob exists as a separate job class with its own main method
+        Method backfillMainMethod = BackfillJob.class.getDeclaredMethod("main", String[].class);
+        assertNotNull(backfillMainMethod);
+        assertTrue(Modifier.isStatic(backfillMainMethod.getModifiers()));
+        assertTrue(Modifier.isPublic(backfillMainMethod.getModifiers()));
+
         // Verify KafkaMessageSource exists and has expected methods
         assertNotNull(KafkaMessageSource.class);
         Method createSourceMethod = KafkaMessageSource.class.getDeclaredMethod("createSource");
         assertNotNull(createSourceMethod);
-        
+
         // Verify BackfillRequestSource exists and has expected methods
         assertNotNull(BackfillRequestSource.class);
         Method createBackfillSourceMethod = BackfillRequestSource.class.getDeclaredMethod("createKafkaSource");
         assertNotNull(createBackfillSourceMethod);
-        
-        // Verify that both sources return compatible types for union operations
-        // (This is implicit in the job structure - if it compiles, the types are compatible)
+
         assertTrue(true, "Job structure maintains compatibility if compilation succeeds");
     }
     
@@ -326,21 +323,22 @@ class WebSocketForwarderJobIntegrationTest {
     
     @Test
     void testJobConfigurationCompatibility() throws Exception {
-        // Test that job configuration patterns remain compatible
-        
-        // Test that validateBackfillConfiguration can be called
-        Method validateMethod = WebSocketForwarderJob.class.getDeclaredMethod("validateBackfillConfiguration");
-        validateMethod.setAccessible(true);
-        
-        // Call validation method (should handle missing env vars gracefully)
-        Boolean result = (Boolean) validateMethod.invoke(null);
-        assertNotNull(result);
-        // Result will be false due to missing env vars, but method should not throw
-        assertFalse(result, "Validation should return false when env vars are missing");
-        
-        // Test that the job handles missing configuration gracefully
-        // This is verified by the fact that the validation method returns false instead of throwing
-        assertTrue(true, "Job handles missing configuration gracefully");
+        // Backfill is now a separate job (BackfillJob). Verify both job entry points exist.
+
+        Method wsMain = WebSocketForwarderJob.class.getDeclaredMethod("main", String[].class);
+        assertNotNull(wsMain);
+        assertTrue(Modifier.isPublic(wsMain.getModifiers()));
+        assertTrue(Modifier.isStatic(wsMain.getModifiers()));
+
+        Method backfillMain = BackfillJob.class.getDeclaredMethod("main", String[].class);
+        assertNotNull(backfillMain);
+        assertTrue(Modifier.isPublic(backfillMain.getModifiers()));
+        assertTrue(Modifier.isStatic(backfillMain.getModifiers()));
+
+        // Verify BackfillRequestSource is used by BackfillJob (not WebSocketForwarderJob)
+        Method createKafkaSource = BackfillRequestSource.class.getDeclaredMethod("createKafkaSource");
+        assertNotNull(createKafkaSource);
+        assertTrue(Modifier.isStatic(createKafkaSource.getModifiers()));
     }
     
     @Test
