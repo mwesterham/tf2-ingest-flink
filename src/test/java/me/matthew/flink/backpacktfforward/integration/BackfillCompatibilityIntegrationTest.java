@@ -210,7 +210,7 @@ class BackfillCompatibilityIntegrationTest {
         // Verify BackfillProcessor extends the expected Flink interface
         try {
             Class<?> processorClass = Class.forName("me.matthew.flink.backpacktfforward.processor.BackfillProcessor");
-            assertTrue(org.apache.flink.api.common.functions.RichFlatMapFunction.class.isAssignableFrom(processorClass));
+            assertTrue(org.apache.flink.streaming.api.functions.async.RichAsyncFunction.class.isAssignableFrom(processorClass));
             
             // Verify constructor signature matches expected pattern
             var constructor = processorClass.getConstructor(String.class, String.class, String.class);
