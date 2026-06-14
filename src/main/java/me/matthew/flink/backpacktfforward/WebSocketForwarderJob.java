@@ -33,7 +33,6 @@ public class WebSocketForwarderJob {
         log.info("Starting BackpackTF Kafka Forwarder Job...");
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.enableCheckpointing(60_000);
 
         // Read env vars safely
         String dbUrl = System.getenv("DB_URL");
