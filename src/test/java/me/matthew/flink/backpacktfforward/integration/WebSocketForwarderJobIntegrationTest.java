@@ -11,7 +11,7 @@ import me.matthew.flink.backpacktfforward.source.KafkaMessageSource;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import SinkFunction;
 import org.apache.flink.util.Collector;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,10 +21,15 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.functions.async.ResultFuture;
+import org.apache.flink.streaming.api.functions.async.RichAsyncFunction;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -59,7 +64,7 @@ class WebSocketForwarderJobIntegrationTest {
         assertNotNull(processor);
         
         // Verify processor implements the expected Flink interface
-        assertTrue(processor instanceof org.apache.flink.api.common.functions.RichFlatMapFunction);
+        assertTrue(processor instanceof RichAsyncFunction);
         
         // Test that processor can process BackfillRequest objects
         BackfillRequest testRequest = new BackfillRequest();
@@ -71,7 +76,7 @@ class WebSocketForwarderJobIntegrationTest {
         
         // Initialize processor (this may fail due to missing env vars, but that's expected in test)
         try {
-            processor.open(new org.apache.flink.configuration.Configuration());
+            processor.open(new Configuration());
         } catch (Exception e) {
             log.debug("Expected processor initialization failure in test environment: {}", e.getMessage());
         }
@@ -79,7 +84,12 @@ class WebSocketForwarderJobIntegrationTest {
         // Test that processor can handle requests without throwing exceptions
         assertDoesNotThrow(() -> {
             try {
-                processor.flatMap(testRequest, collector);
+                var future = new CompletableFuture<Collection<ListingUpdate>>();
+                processor.asyncInvoke(testRequest, new ResultFuture<ListingUpdate>() {
+                    @Override public void complete(Collection<ListingUpdate> result) { future.complete(result); }
+                    @Override public void completeExceptionally(Throwable error) { future.completeExceptionally(error); }
+                });
+                future.get(5, TimeUnit.SECONDS);
             } catch (Exception e) {
                 // Expected to fail due to missing API configurations in test environment
                 log.debug("Expected processing failure in test environment: {}", e.getMessage());
@@ -92,7 +102,7 @@ class WebSocketForwarderJobIntegrationTest {
         try {
             Method createKafkaSourceMethod = BackfillRequestSource.class.getDeclaredMethod("createKafkaSource");
             assertNotNull(createKafkaSourceMethod);
-            assertTrue(java.lang.reflect.Modifier.isStatic(createKafkaSourceMethod.getModifiers()));
+            assertTrue(Modifier.isStatic(createKafkaSourceMethod.getModifiers()));
         } catch (NoSuchMethodException e) {
             fail("BackfillRequestSource should have createKafkaSource method");
         }
@@ -166,11 +176,11 @@ class WebSocketForwarderJobIntegrationTest {
         assertNotNull(upsertSink);
         
         // Verify sink implements expected interface
-        assertTrue(upsertSink instanceof org.apache.flink.streaming.api.functions.sink.SinkFunction);
+        assertTrue(upsertSink instanceof SinkFunction);
         
         // Test that sink can handle the event structure (initialization test)
         try {
-            upsertSink.open(new org.apache.flink.configuration.Configuration());
+            upsertSink.open(new Configuration());
             // If we get here without exception, the sink can initialize
             assertTrue(true, "UpsertSink can initialize with test configuration");
         } catch (Exception e) {
@@ -207,11 +217,11 @@ class WebSocketForwarderJobIntegrationTest {
         assertNotNull(deleteSink);
         
         // Verify sink implements expected interface
-        assertTrue(deleteSink instanceof org.apache.flink.streaming.api.functions.sink.SinkFunction);
+        assertTrue(deleteSink instanceof SinkFunction);
         
         // Test that sink can handle the event structure (initialization test)
         try {
-            deleteSink.open(new org.apache.flink.configuration.Configuration());
+            deleteSink.open(new Configuration());
             // If we get here without exception, the sink can initialize
             assertTrue(true, "DeleteSink can initialize with test configuration");
         } catch (Exception e) {
@@ -237,14 +247,14 @@ class WebSocketForwarderJobIntegrationTest {
         // Verify main method exists and is accessible
         Method mainMethod = WebSocketForwarderJob.class.getDeclaredMethod("main", String[].class);
         assertNotNull(mainMethod);
-        assertTrue(java.lang.reflect.Modifier.isStatic(mainMethod.getModifiers()));
-        assertTrue(java.lang.reflect.Modifier.isPublic(mainMethod.getModifiers()));
+        assertTrue(Modifier.isStatic(mainMethod.getModifiers()));
+        assertTrue(Modifier.isPublic(mainMethod.getModifiers()));
         
         // Verify backfill configuration validation method exists
         Method validateMethod = WebSocketForwarderJob.class.getDeclaredMethod("validateBackfillConfiguration");
         assertNotNull(validateMethod);
-        assertTrue(java.lang.reflect.Modifier.isStatic(validateMethod.getModifiers()));
-        assertTrue(java.lang.reflect.Modifier.isPrivate(validateMethod.getModifiers()));
+        assertTrue(Modifier.isStatic(validateMethod.getModifiers()));
+        assertTrue(Modifier.isPrivate(validateMethod.getModifiers()));
         
         // Test that the job class structure supports both Kafka and backfill streams
         // This is verified by checking that all required components exist and are accessible

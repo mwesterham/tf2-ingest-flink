@@ -12,6 +12,12 @@ import me.matthew.flink.backpacktfforward.util.DatabaseHelper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
+import org.apache.flink.api.common.functions.AbstractRichFunction;
+import org.apache.flink.api.common.functions.RuntimeContext;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.metrics.groups.OperatorMetricGroup;
+import org.apache.flink.streaming.api.functions.async.ResultFuture;
 import org.apache.flink.util.Collector;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -20,6 +26,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import lombok.extern.slf4j.Slf4j;
@@ -52,12 +61,9 @@ class BackfillEndToEndIntegrationTest {
         processor = new BackfillProcessor("jdbc:h2:mem:test", "test", "test");
         
         // Mock the Flink runtime context to avoid NPE with metrics
-        org.apache.flink.api.common.functions.RuntimeContext mockRuntimeContext = 
-            mock(org.apache.flink.api.common.functions.RuntimeContext.class);
-        org.apache.flink.metrics.groups.OperatorMetricGroup mockMetricGroup = 
-            mock(org.apache.flink.metrics.groups.OperatorMetricGroup.class);
-        org.apache.flink.metrics.Counter mockCounter = 
-            mock(org.apache.flink.metrics.Counter.class);
+        RuntimeContext mockRuntimeContext = mock(RuntimeContext.class);
+        OperatorMetricGroup mockMetricGroup = mock(OperatorMetricGroup.class);
+        Counter mockCounter = mock(Counter.class);
         
         when(mockRuntimeContext.getMetricGroup()).thenReturn(mockMetricGroup);
         when(mockMetricGroup.counter(anyString())).thenReturn(mockCounter);
@@ -65,7 +71,7 @@ class BackfillEndToEndIntegrationTest {
         
         // Inject the mock runtime context using reflection
         try {
-            var runtimeContextField = org.apache.flink.api.common.functions.AbstractRichFunction.class
+            var runtimeContextField = AbstractRichFunction.class
                 .getDeclaredField("runtimeContext");
             runtimeContextField.setAccessible(true);
             runtimeContextField.set(processor, mockRuntimeContext);
@@ -75,7 +81,7 @@ class BackfillEndToEndIntegrationTest {
         
         // Initialize the processor (this should now work with mocked runtime context)
         try {
-            processor.open(new org.apache.flink.configuration.Configuration());
+            processor.open(new Configuration());
         } catch (Exception e) {
             // If it still fails, we'll inject mocks manually
             log.debug("Processor initialization failed, will inject mocks: {}", e.getMessage());
@@ -99,12 +105,30 @@ class BackfillEndToEndIntegrationTest {
             requestFactory.setAccessible(true);
             requestFactory.set(processor, mockRequestFactory);
             
+            // Inject executor (open() may fail before reaching executor initialization)
+            var executorField = BackfillProcessor.class.getDeclaredField("executor");
+            executorField.setAccessible(true);
+            executorField.set(processor, Executors.newSingleThreadExecutor());
+
+            // Inject counters in case open() failed before initializing them
+            Counter fallbackCounter = mock(Counter.class);
+            var processedField = BackfillProcessor.class.getDeclaredField("backfillRequestsProcessed");
+            processedField.setAccessible(true);
+            if (processedField.get(processor) == null) {
+                processedField.set(processor, fallbackCounter);
+            }
+            var failedField = BackfillProcessor.class.getDeclaredField("backfillRequestsFailed");
+            failedField.setAccessible(true);
+            if (failedField.get(processor) == null) {
+                failedField.set(processor, fallbackCounter);
+            }
+
             log.debug("Successfully injected mocks into BackfillProcessor and reinitialized request factory");
         } catch (Exception e) {
             log.warn("Failed to inject mocks via reflection: {}", e.getMessage());
             // Test will likely fail, but we'll continue to see what happens
         }
-        
+
         collector = new TestCollector();
     }
     
@@ -156,10 +180,7 @@ class BackfillEndToEndIntegrationTest {
         when(mockRequestFactory.getHandler(any(BackfillRequest.class))).thenReturn(new FullBackfillHandler(mockDatabaseHelper, mockBackpackTfClient, mockSteamApi));
         
         // Act: Process the backfill request
-        processor.flatMap(request, collector);
-        
-        // Assert: Verify the complete data flow
-        List<ListingUpdate> results = collector.getCollectedItems();
+        List<ListingUpdate> results = invokeSync(processor, request);
         
         // Should generate updates for source of truth items and deletes for stale data
         assertTrue(results.size() >= 2, "Should generate at least 2 events (updates and/or deletes)");
@@ -221,11 +242,7 @@ class BackfillEndToEndIntegrationTest {
             .thenReturn(unusualApiResponse);
         
         // Process unusual item request
-        TestCollector unusualCollector = new TestCollector();
-        processor.flatMap(unusualRequest, unusualCollector);
-        
-        // Verify unusual item processing
-        List<ListingUpdate> unusualResults = unusualCollector.getCollectedItems();
+        List<ListingUpdate> unusualResults = invokeSync(processor, unusualRequest);
         assertNotNull(unusualResults);
         // Results depend on mock setup - verify basic structure
         
@@ -239,10 +256,7 @@ class BackfillEndToEndIntegrationTest {
         when(mockBackpackTfClient.fetchSnapshot("Test Item", 440))
             .thenReturn(createEmptyApiResponse());
         
-        TestCollector emptyCollector = new TestCollector();
-        processor.flatMap(emptyRequest, emptyCollector);
-        
-        List<ListingUpdate> emptyResults = emptyCollector.getCollectedItems();
+        List<ListingUpdate> emptyResults = invokeSync(processor, emptyRequest);
         assertNotNull(emptyResults);
         // Should handle empty results gracefully
     }
@@ -263,21 +277,20 @@ class BackfillEndToEndIntegrationTest {
         
         // Should not throw exception, should handle gracefully
         assertDoesNotThrow(() -> {
-            processor.flatMap(request, errorCollector);
+            invokeSync(processor, request);
         });
-        
+
         // Scenario 2: BackpackTF API error
         reset(mockDatabaseHelper);
         when(mockDatabaseHelper.getAllListingsForItem(190, 11)).thenReturn(Collections.emptyList());
         when(mockDatabaseHelper.getMarketName(190, 11)).thenReturn("Strange Bat");
         when(mockBackpackTfClient.fetchSnapshot("Strange Bat", 440))
             .thenThrow(new RuntimeException("API rate limit exceeded"));
-        
-        TestCollector apiErrorCollector = new TestCollector();
+
         assertDoesNotThrow(() -> {
-            processor.flatMap(request, apiErrorCollector);
+            invokeSync(processor, request);
         });
-        
+
         // Scenario 3: Steam API error
         reset(mockDatabaseHelper, mockBackpackTfClient);
         when(mockDatabaseHelper.getAllListingsForItem(190, 11)).thenReturn(Collections.emptyList());
@@ -285,10 +298,9 @@ class BackfillEndToEndIntegrationTest {
         when(mockBackpackTfClient.fetchSnapshot("Strange Bat", 440)).thenReturn(createSampleApiResponse());
         when(mockSteamApi.getPlayerItems(anyString()))
             .thenThrow(new RuntimeException("Steam API unavailable"));
-        
-        TestCollector steamErrorCollector = new TestCollector();
+
         assertDoesNotThrow(() -> {
-            processor.flatMap(request, steamErrorCollector);
+            invokeSync(processor, request);
         });
     }
     
@@ -341,14 +353,10 @@ class BackfillEndToEndIntegrationTest {
         // Measure processing time
         long startTime = System.currentTimeMillis();
         
-        TestCollector performanceCollector = new TestCollector();
-        processor.flatMap(request, performanceCollector);
-        
+        List<ListingUpdate> results = invokeSync(processor, request);
+
         long endTime = System.currentTimeMillis();
         long processingTime = endTime - startTime;
-        
-        // Verify results - should have both updates and deletes
-        List<ListingUpdate> results = performanceCollector.getCollectedItems();
         assertTrue(results.size() >= 50, "Should process at least 50 events (updates and/or deletes)");
         
         // Separate updates and deletes
@@ -376,8 +384,27 @@ class BackfillEndToEndIntegrationTest {
         verify(mockBackpackTfClient, times(50)).getListing(anyString());
     }
     
+    private List<ListingUpdate> invokeSync(BackfillProcessor proc, BackfillRequest request) throws Exception {
+<<<<<<< HEAD
+        java.util.concurrent.CompletableFuture<java.util.Collection<ListingUpdate>> future =
+                new java.util.concurrent.CompletableFuture<>();
+        proc.asyncInvoke(request, new org.apache.flink.streaming.api.functions.async.ResultFuture<ListingUpdate>() {
+            @Override public void complete(java.util.Collection<ListingUpdate> result) { future.complete(result); }
+            @Override public void completeExceptionally(Throwable error) { future.completeExceptionally(error); }
+        });
+        return new ArrayList<>(future.get(30, java.util.concurrent.TimeUnit.SECONDS));
+=======
+        CompletableFuture<Collection<ListingUpdate>> future = new CompletableFuture<>();
+        proc.asyncInvoke(request, new ResultFuture<ListingUpdate>() {
+            @Override public void complete(Collection<ListingUpdate> result) { future.complete(result); }
+            @Override public void completeExceptionally(Throwable error) { future.completeExceptionally(error); }
+        });
+        return new ArrayList<>(future.get(30, TimeUnit.SECONDS));
+>>>>>>> e13b66c (move backfill to an executor approach)
+    }
+
     // Helper methods to create sample data
-    
+
     private BackpackTfApiResponse createSampleApiResponse() {
         BackpackTfApiResponse response = new BackpackTfApiResponse();
         
