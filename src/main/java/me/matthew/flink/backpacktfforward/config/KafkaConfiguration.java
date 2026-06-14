@@ -28,6 +28,7 @@ public class KafkaConfiguration {
     
     // Optional environment variables
     private static final String KAFKA_START_TIMESTAMP_ENV = "KAFKA_START_TIMESTAMP";
+    private static final String KAFKA_START_TIMESTAMP_MINUTES_ENV = "KAFKA_START_TIMESTAMP_MINUTES";
     private static final int DEFAULT_KAFKA_TIMESTAMP_MINUTES = 30;
     
     // Prefix for additional Kafka consumer properties
@@ -85,18 +86,31 @@ public class KafkaConfiguration {
      */
     public static Long getStartTimestamp() {
         String timestampStr = System.getenv(KAFKA_START_TIMESTAMP_ENV);
-        if (timestampStr == null || timestampStr.trim().isEmpty()) {
-            return System.currentTimeMillis() - Duration.ofMinutes(DEFAULT_KAFKA_TIMESTAMP_MINUTES).toMillis();
+        if (timestampStr != null && !timestampStr.trim().isEmpty()) {
+            try {
+                return Long.parseLong(timestampStr.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(
+                    String.format("Environment variable %s must be a valid timestamp in milliseconds, got: %s",
+                        KAFKA_START_TIMESTAMP_ENV, timestampStr), e
+                );
+            }
         }
-        
-        try {
-            return Long.parseLong(timestampStr.trim());
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException(
-                String.format("Environment variable %s must be a valid timestamp in milliseconds, got: %s", 
-                    KAFKA_START_TIMESTAMP_ENV, timestampStr), e
-            );
+
+        int minutes = DEFAULT_KAFKA_TIMESTAMP_MINUTES;
+        String minutesStr = System.getenv(KAFKA_START_TIMESTAMP_MINUTES_ENV);
+        if (minutesStr != null && !minutesStr.trim().isEmpty()) {
+            try {
+                minutes = Integer.parseInt(minutesStr.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(
+                    String.format("Environment variable %s must be a valid integer, got: %s",
+                        KAFKA_START_TIMESTAMP_MINUTES_ENV, minutesStr), e
+                );
+            }
         }
+
+        return System.currentTimeMillis() - Duration.ofMinutes(minutes).toMillis();
     }
 
     /**

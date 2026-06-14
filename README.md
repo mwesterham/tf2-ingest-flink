@@ -10,6 +10,7 @@ A high-performance Apache Flink application that processes Team Fortress 2 tradi
 - **Database Persistence**: PostgreSQL storage with upsert and delete operations
 - **Monitoring**: Comprehensive metrics via Prometheus integration
 - **Scalable**: Built on Apache Flink for distributed processing
+- **Fault-tolerant**: Checkpointing every 60 seconds — restarts resume from last checkpoint instead of replaying from a fixed timestamp
 
 ## Quick Start
 
@@ -38,6 +39,13 @@ A high-performance Apache Flink application that processes Team Fortress 2 tradi
    export DB_USERNAME="testuser"
    export DB_PASSWORD="testpass"
    ```
+
+   **Optional Kafka offset control** (only applies to the very first cold start — subsequent restarts resume from the last checkpoint):
+
+   | Variable | Description | Default |
+   |---|---|---|
+   | `KAFKA_START_TIMESTAMP` | Absolute epoch-ms to start from (takes priority) | — |
+   | `KAFKA_START_TIMESTAMP_MINUTES` | Start from N minutes ago on cold start | `30` |
 
 3. **Run the application:**
    ```bash
@@ -89,6 +97,14 @@ docker build -t tf2-ingest-flink-job:1.0 . && \
 docker tag tf2-ingest-flink-job:1.0 mwesterham/tf2-ingest-flink-job:latest && \
 docker push mwesterham/tf2-ingest-flink-job:latest
 ```
+
+## Checkpointing and Fault Tolerance
+
+The job checkpoints every 60 seconds using the filesystem state backend. Checkpoint data is written to `state.checkpoints.dir` (configured in the k8s deployment as `/opt/flink/ha/checkpoints` on the HA PVC).
+
+On restart after a failure, Flink restores from the last successful checkpoint, so at most 60 seconds of messages need to be replayed. Without a valid checkpoint (i.e., the very first cold start), the job falls back to consuming from `KAFKA_START_TIMESTAMP` or `KAFKA_START_TIMESTAMP_MINUTES` ago.
+
+The k8s deployment uses `upgradeMode: last-state`, so operator-managed restarts (image updates, config changes) also restore from the last checkpoint rather than starting fresh.
 
 ## Monitoring
 
