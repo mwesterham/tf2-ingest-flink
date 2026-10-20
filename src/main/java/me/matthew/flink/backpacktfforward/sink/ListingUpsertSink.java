@@ -21,10 +21,17 @@ import java.util.List;
 
 import static me.matthew.flink.backpacktfforward.metrics.Metrics.LISTING_UPSERTS;
 import static me.matthew.flink.backpacktfforward.metrics.Metrics.LISTING_UPSERT_RETRIES;
+import static me.matthew.flink.backpacktfforward.metrics.Metrics.LISTING_UPSERTS_SKIPPED_INVALID;
 import static me.matthew.flink.backpacktfforward.metrics.Metrics.REALTIME_WRITES_PROCESSED;
 
 @Slf4j
 public class ListingUpsertSink extends RichSinkFunction<ListingUpdate> {
+
+    /**
+     * floor(Long.MAX_VALUE / 18): above this, the generated column
+     * metal_half_scrap = round(metal * 18) overflows bigint.
+     */
+    static final double MAX_METAL = 512409557603043211.0;
 
     private static final String UPSERT_SQL = """ 
         INSERT INTO listings (
@@ -75,6 +82,7 @@ public class ListingUpsertSink extends RichSinkFunction<ListingUpdate> {
     private PreparedStatement stmt;
     private transient Counter upsertCounter;
     private transient Counter realTimeWritesCounter;
+    private transient Counter skippedInvalidCounter;
 
     private final List<ListingUpdate> batch = new ArrayList<>();
     private final int batchSize;
@@ -105,6 +113,7 @@ public class ListingUpsertSink extends RichSinkFunction<ListingUpdate> {
 
         upsertCounter = getRuntimeContext().getMetricGroup().counter(LISTING_UPSERTS);
         realTimeWritesCounter = getRuntimeContext().getMetricGroup().counter(REALTIME_WRITES_PROCESSED);
+        skippedInvalidCounter = getRuntimeContext().getMetricGroup().counter(LISTING_UPSERTS_SKIPPED_INVALID);
         
         SqlRetryMetrics sqlRetryMetrics = new SqlRetryMetrics(
                 getRuntimeContext().getMetricGroup(),
@@ -117,6 +126,17 @@ public class ListingUpsertSink extends RichSinkFunction<ListingUpdate> {
 
     @Override
     public void invoke(ListingUpdate lu, Context context) throws Exception {
+        // Drop rows the listings table would reject (troll prices etc.). One bad
+        // row fails the whole batch, and since the batch is never cleared on
+        // failure it would poison every flush after it.
+        String invalidReason = invalidReason(lu);
+        if (invalidReason != null) {
+            skippedInvalidCounter.inc();
+            log.warn("Skipping invalid listing update {}: {}",
+                    lu != null && lu.getPayload() != null ? lu.getPayload().getId() : null, invalidReason);
+            return;
+        }
+
         // Track real-time vs backfill writes separately for monitoring
         if (lu.getGenerationTimestamp() == null) {
             realTimeWritesCounter.inc();
@@ -211,11 +231,12 @@ public class ListingUpsertSink extends RichSinkFunction<ListingUpdate> {
                     stmt.setString(33, p.getItem() != null ? p.getItem().getPaintSecondaryHex() : null);
 
                     stmt.addBatch();
-                    upsertCounter.inc();
                 }
 
                 stmt.executeBatch();
                 connection.commit();
+                // Count only committed rows, not retry attempts
+                upsertCounter.inc(batch.size());
             }
             catch (SQLException ex) {
                 connection.rollback();
@@ -224,6 +245,31 @@ public class ListingUpsertSink extends RichSinkFunction<ListingUpdate> {
         });
 
         batch.clear();
+    }
+
+    /**
+     * Returns why the update can't be written to the listings table, or null if it can.
+     * Mirrors the table's CHECK constraints and the metal_half_scrap bigint range.
+     */
+    static String invalidReason(ListingUpdate lu) {
+        if (lu == null || lu.getPayload() == null)
+            return "missing payload";
+        var p = lu.getPayload();
+        if (p.getId() == null)
+            return "missing id";
+        if (p.getItem() == null)
+            return "missing item";
+        if (p.getItem().getDefindex() < 0)
+            return "negative defindex " + p.getItem().getDefindex();
+        if (p.getCurrencies() != null) {
+            Double metal = p.getCurrencies().getMetal();
+            if (metal != null && (metal.isNaN() || metal < 0 || metal > MAX_METAL))
+                return "metal out of range " + metal;
+            Long keys = p.getCurrencies().getKeys();
+            if (keys != null && keys < 0)
+                return "negative keys " + keys;
+        }
+        return null;
     }
 
     /**

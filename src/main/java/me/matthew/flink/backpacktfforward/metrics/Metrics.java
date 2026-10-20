@@ -20,6 +20,7 @@ public final class Metrics {
     public static final String DELETED_LISTINGS_RETRIES = "listing_delete_retries";
     public static final String LISTING_UPSERTS = "listing_upserts";
     public static final String LISTING_UPSERT_RETRIES = "listing_upsert_retries";
+    public static final String LISTING_UPSERTS_SKIPPED_INVALID = "listing_upserts_skipped_invalid";
 
     // Backfill operation metrics
     public static final String BACKFILL_REQUESTS_CONSUMED = "backfill_requests_consumed";
